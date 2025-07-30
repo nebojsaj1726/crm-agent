@@ -28,7 +28,7 @@ go.work.sum
 # MacOS files
 .DS_Store
 
-# Node modules (if you're using frontend in the same repo)
+# Node modules 
 node_modules/
 
 # Environment variables / config
@@ -40,7 +40,7 @@ bin/
 build/
 dist/
 
-# Compiled static assets (if generated)
+# Compiled static assets 
 public/
 static/
 

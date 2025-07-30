@@ -1,0 +1,14 @@
+services:
+  ollama:
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    container_name: ollama
+
+  chroma:
+    image: ghcr.io/chroma-core/chroma:0.5.0
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    container_name: chroma

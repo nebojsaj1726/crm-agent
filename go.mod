@@ -2,6 +2,8 @@ module github.com/nebojsaj1726/crm-agents
 
 go 1.24.3
 
+require github.com/joho/godotenv v1.5.1
+
 require (
 	github.com/AssemblyAI/assemblyai-go-sdk v1.3.0 // indirect
 	github.com/Masterminds/goutils v1.1.1 // indirect
