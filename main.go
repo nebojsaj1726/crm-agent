@@ -109,7 +109,7 @@ func main() {
 			return
 		}
 
-		fmt.Printf("Top Lead (score: %.2f):\n%s\n\n", topLead.Score, topLead.LeadText)
+		fmt.Printf("Top Lead (Vector serch score: %.2f):\n%s\n\n", topLead.Score, topLead.LeadText)
 
 		scoreResp, err := scoringTool.Call(ctx, topLead.LeadText)
 		if err != nil {
