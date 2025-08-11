@@ -11,13 +11,17 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	allPrompts "github.com/nebojsaj1726/crm-agents/prompts"
+	"github.com/nebojsaj1726/crm-agents/tools"
 	"github.com/nebojsaj1726/crm-agents/utils"
 	"github.com/tmc/langchaingo/embeddings"
 	"github.com/tmc/langchaingo/llms/ollama"
-	"github.com/tmc/langchaingo/schema"
 	"github.com/tmc/langchaingo/vectorstores/chroma"
 )
+
+type Lead struct {
+	Score    float64 `json:"score"`
+	LeadText string  `json:"lead_text"`
+}
 
 func main() {
 	err := godotenv.Load()
@@ -50,6 +54,16 @@ func main() {
 			log.Fatalf("failed to create Ollama client: %v", err)
 		}
 
+		store, err := initVectorStore(embedModel)
+		if err != nil {
+			log.Fatalf("failed to initialize vector store: %v", err)
+		}
+
+		filterTool := tools.FilterLeadsTool{LLM: llm}
+		vectorTool := tools.VectorSearchTool{Store: store}
+		scoringTool := tools.ScoreLeadTool{LLM: llm}
+		emailTool := tools.DraftEmailTool{LLM: llm}
+
 		fmt.Print("Enter a fuzzy lead description: ")
 		reader := bufio.NewReader(os.Stdin)
 		userInput, err := reader.ReadString('\n')
@@ -57,7 +71,8 @@ func main() {
 			log.Fatal(err)
 		}
 		userInput = strings.TrimSpace(userInput)
-		filterResp, err := utils.RunPrompt(ctx, llm, allPrompts.Filter, map[string]any{"input": userInput})
+
+		filterResp, err := filterTool.Call(ctx, userInput)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -66,66 +81,48 @@ func main() {
 			Department    string   `json:"department"`
 			TitleKeywords []string `json:"title_keywords"`
 		}
-		err = json.Unmarshal([]byte(filterResp), &filters)
-		if err != nil {
-			log.Fatalf("failed to parse JSON from LLM output: %v", err)
+		if err := json.Unmarshal([]byte(filterResp), &filters); err != nil {
+			log.Fatalf("failed to parse JSON from filter tool: %v", err)
 		}
+		query := strings.TrimSpace(filters.Company + " " + filters.Department + " " + strings.Join(filters.TitleKeywords, " "))
 
-		query := filters.Company + " " + filters.Department + " " + strings.Join(filters.TitleKeywords, " ")
-
-		store, err := initVectorStore(embedModel)
+		searchResp, err := vectorTool.Call(ctx, query)
 		if err != nil {
-			log.Fatalf("failed to initialize vector store: %v", err)
+			log.Fatal(err)
 		}
-
-		results, err := store.SimilaritySearch(ctx, query, 3)
-		if err != nil {
-			log.Fatalf("similarity search failed: %v", err)
+		var searchResults []Lead
+		if err := json.Unmarshal([]byte(searchResp), &searchResults); err != nil {
+			log.Fatalf("failed to parse JSON from vector tool: %v", err)
 		}
 
 		const minScore = 0.6
-		filtered := make([]schema.Document, 0)
-		for _, r := range results {
-			if r.Score >= minScore {
-				filtered = append(filtered, r)
+		var topLead *Lead
+		for i := range searchResults {
+			if searchResults[i].Score >= minScore {
+				if topLead == nil || searchResults[i].Score > topLead.Score {
+					topLead = &searchResults[i]
+				}
 			}
 		}
-
-		if len(filtered) == 0 {
+		if topLead == nil {
 			fmt.Println("No highly relevant leads found.")
+			return
+		}
+
+		fmt.Printf("Top Lead (score: %.2f):\n%s\n\n", topLead.Score, topLead.LeadText)
+
+		scoreResp, err := scoringTool.Call(ctx, topLead.LeadText)
+		if err != nil {
+			log.Printf("Error scoring lead: %v", err)
 		} else {
-			topLead := filtered[0]
-			fmt.Printf("Top Lead (score: %.2f):\n%s\n\n", topLead.Score, topLead.PageContent)
+			fmt.Println("Lead Score & Justification:", scoreResp)
+		}
 
-			leadText := topLead.PageContent
-			productDesc, err := utils.LoadMarkdownContent("product-example.md")
-			if err != nil {
-				log.Fatalf("failed to load product description: %v", err)
-			}
-
-			scoreCh := utils.RunPromptAsync(ctx, llm, allPrompts.Scoring, map[string]any{
-				"lead":    leadText,
-				"product": productDesc,
-			})
-			emailCh := utils.RunPromptAsync(ctx, llm, allPrompts.Email, map[string]any{
-				"lead":    leadText,
-				"product": productDesc,
-			})
-
-			scoreResult := <-scoreCh
-			emailResult := <-emailCh
-
-			if scoreResult.Err != nil {
-				log.Printf("Error scoring lead: %v", scoreResult.Err)
-			} else {
-				fmt.Println("Lead Score & Justification:", scoreResult.Response)
-			}
-
-			if emailResult.Err != nil {
-				log.Printf("Error generating email: %v", emailResult.Err)
-			} else {
-				fmt.Println("\nSuggested Prospecting Email:\n" + emailResult.Response)
-			}
+		emailResp, err := emailTool.Call(ctx, topLead.LeadText)
+		if err != nil {
+			log.Printf("Error generating email: %v", err)
+		} else {
+			fmt.Println("\nSuggested Prospecting Email:\n" + emailResp)
 		}
 		return
 	}
