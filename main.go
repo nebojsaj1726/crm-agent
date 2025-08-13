@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -33,37 +32,38 @@ func main() {
 	embedModel := os.Getenv("EMBED_MODEL")
 
 	seedCmd := flag.Bool("seed", false, "Seed Chroma vector store from markdown")
-	queryCmd := flag.Bool("query", false, "Query Chroma with user input")
+	queryCmd := flag.Bool("query", false, "Query the system with user input")
 	deleteCmd := flag.Bool("delete", false, "Delete all data from the Chroma vector store")
+	webCmd := flag.Bool("web", false, "Run web")
+
 	flag.Parse()
 
 	ctx := context.Background()
 
-	if *seedCmd {
+	llm, err := ollama.New(ollama.WithModel(model))
+	if err != nil {
+		log.Fatalf("failed to create Ollama client: %v", err)
+	}
+
+	store, err := initVectorStore(embedModel)
+	if err != nil {
+		log.Fatalf("failed to initialize vector store: %v", err)
+	}
+
+	filterTool := tools.FilterLeadsTool{LLM: llm}
+	vectorTool := tools.VectorSearchTool{Store: store}
+	scoringTool := tools.ScoreLeadTool{LLM: llm}
+	emailTool := tools.DraftEmailTool{LLM: llm}
+
+	switch {
+	case *seedCmd:
 		err := utils.LoadMarkdownToVectorStore(ctx, "leads-example.md", "leads-demo")
 		if err != nil {
 			log.Fatalf("failed to seed vector DB: %v", err)
 		}
-		fmt.Println("Chroma vector store seeded successfully.")
-		return
-	}
+		log.Println("Chroma vector store seeded successfully.")
 
-	if *queryCmd {
-		llm, err := ollama.New(ollama.WithModel(model))
-		if err != nil {
-			log.Fatalf("failed to create Ollama client: %v", err)
-		}
-
-		store, err := initVectorStore(embedModel)
-		if err != nil {
-			log.Fatalf("failed to initialize vector store: %v", err)
-		}
-
-		filterTool := tools.FilterLeadsTool{LLM: llm}
-		vectorTool := tools.VectorSearchTool{Store: store}
-		scoringTool := tools.ScoreLeadTool{LLM: llm}
-		emailTool := tools.DraftEmailTool{LLM: llm}
-
+	case *queryCmd:
 		fmt.Print("Enter a fuzzy lead description: ")
 		reader := bufio.NewReader(os.Stdin)
 		userInput, err := reader.ReadString('\n')
@@ -72,62 +72,16 @@ func main() {
 		}
 		userInput = strings.TrimSpace(userInput)
 
-		filterResp, err := filterTool.Call(ctx, userInput)
+		resp, err := runQuery(ctx, userInput, filterTool, vectorTool, scoringTool, emailTool)
 		if err != nil {
 			log.Fatal(err)
 		}
-		var filters struct {
-			Company       string   `json:"company"`
-			Department    string   `json:"department"`
-			TitleKeywords []string `json:"title_keywords"`
-		}
-		if err := json.Unmarshal([]byte(filterResp), &filters); err != nil {
-			log.Fatalf("failed to parse JSON from filter tool: %v", err)
-		}
-		query := strings.TrimSpace(filters.Company + " " + filters.Department + " " + strings.Join(filters.TitleKeywords, " "))
 
-		searchResp, err := vectorTool.Call(ctx, query)
-		if err != nil {
-			log.Fatal(err)
-		}
-		var searchResults []Lead
-		if err := json.Unmarshal([]byte(searchResp), &searchResults); err != nil {
-			log.Fatalf("failed to parse JSON from vector tool: %v", err)
-		}
+		fmt.Printf("Top Lead (Vector search score: %.2f):\n%s\n\n", resp.TopLead.Score, resp.TopLead.LeadText)
+		fmt.Println("Lead Score & Justification:", resp.LeadScore)
+		fmt.Println("\nSuggested Prospecting Email:\n" + resp.ProspectEmail)
 
-		const minScore = 0.6
-		var topLead *Lead
-		for i := range searchResults {
-			if searchResults[i].Score >= minScore {
-				if topLead == nil || searchResults[i].Score > topLead.Score {
-					topLead = &searchResults[i]
-				}
-			}
-		}
-		if topLead == nil {
-			fmt.Println("No highly relevant leads found.")
-			return
-		}
-
-		fmt.Printf("Top Lead (Vector serch score: %.2f):\n%s\n\n", topLead.Score, topLead.LeadText)
-
-		scoreResp, err := scoringTool.Call(ctx, topLead.LeadText)
-		if err != nil {
-			log.Printf("Error scoring lead: %v", err)
-		} else {
-			fmt.Println("Lead Score & Justification:", scoreResp)
-		}
-
-		emailResp, err := emailTool.Call(ctx, topLead.LeadText)
-		if err != nil {
-			log.Printf("Error generating email: %v", err)
-		} else {
-			fmt.Println("\nSuggested Prospecting Email:\n" + emailResp)
-		}
-		return
-	}
-
-	if *deleteCmd {
+	case *deleteCmd:
 		store, err := initVectorStore(embedModel)
 		if err != nil {
 			log.Fatalf("failed to initialize vector store: %v", err)
@@ -137,11 +91,15 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to delete Chroma collection: %v", err)
 		}
-		fmt.Println("Chroma vector store deleted successfully.")
-		return
+		log.Println("Chroma vector store deleted successfully.")
+
+	case *webCmd:
+		startAPI(ctx, filterTool, vectorTool, scoringTool, emailTool)
+
+	default:
+		fmt.Println("Please enter command: -seed | -query | -delete | -web")
 	}
 
-	fmt.Println("Please specify either -seed or -query")
 }
 
 func initVectorStore(embedModel string) (*chroma.Store, error) {

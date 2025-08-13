@@ -7,7 +7,7 @@ EMBED_MODEL ?= $(shell echo $$EMBED_MODEL)
 
 # ----------- Main commands -----------
 
-.PHONY: start stop pull-models build wait-chroma seed query logs setup clean
+.PHONY: start stop pull-models build wait-chroma seed check-binary query web logs setup clean
 
 start:
 	docker-compose up -d
@@ -17,7 +17,7 @@ pull-models:
 	docker exec ollama ollama pull $(EMBED_MODEL)
 
 build:
-	go build -o crm main.go
+	go build -o crm
 
 wait-chroma:
 	@echo "Waiting for Chroma to be ready..."
@@ -29,13 +29,24 @@ wait-chroma:
 seed: wait-chroma build
 	./crm -seed
 
-query:
+check-binary:
 	@if [ ! -f ./crm ]; then \
 		echo "Error: crm binary not found. Run 'make setup' first"; \
 		exit 1; \
-	else \
-		./crm -query; \
 	fi
+
+query: check-binary
+	./crm -query
+
+web: check-binary
+	@if lsof -i:8080 > /dev/null; then \
+		echo "API server already running on port 8080"; \
+	else \
+		./crm -web & \
+	fi
+
+	cd web && [ -d node_modules ] || npm install
+	cd web && npm run dev
 
 logs:
 	docker-compose logs -f
