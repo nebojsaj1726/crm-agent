@@ -3,8 +3,8 @@ package tools
 import (
 	"context"
 
-	allPrompts "github.com/nebojsaj1726/crm-agents/prompts"
-	"github.com/nebojsaj1726/crm-agents/utils"
+	allPrompts "github.com/nebojsaj1726/crm-agent/prompts"
+	"github.com/nebojsaj1726/crm-agent/utils"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/tools"
 )

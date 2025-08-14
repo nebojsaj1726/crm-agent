@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	"github.com/nebojsaj1726/crm-agents/tools"
-	"github.com/nebojsaj1726/crm-agents/utils"
+	"github.com/nebojsaj1726/crm-agent/tools"
+	"github.com/nebojsaj1726/crm-agent/utils"
 	"github.com/tmc/langchaingo/embeddings"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/vectorstores/chroma"

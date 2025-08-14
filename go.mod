@@ -1,4 +1,4 @@
-module github.com/nebojsaj1726/crm-agents
+module github.com/nebojsaj1726/crm-agent
 
 go 1.24.3
 

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebojsaj1726/crm-agents/tools"
+	"github.com/nebojsaj1726/crm-agent/tools"
 )
 
 func startAPI(

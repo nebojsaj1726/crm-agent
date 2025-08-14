@@ -7,7 +7,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/nebojsaj1726/crm-agents/tools"
+	"github.com/nebojsaj1726/crm-agent/tools"
 )
 
 type QueryResponse struct {
